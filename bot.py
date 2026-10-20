@@ -75,7 +75,7 @@ async def convert_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tg_file = await context.bot.get_file(video_file.file_id)
         await tg_file.download_to_drive(input_path)
 
-        # Convert video to MP4 (H.264 video codec, AAC audio codec) using FFmpeg
+        # Convert video to MP4 using FFmpeg
         command = [
             "ffmpeg",
             "-y",                   # Overwrite output file if exists
@@ -122,7 +122,6 @@ def main():
     if not TOKEN:
         raise ValueError("BOT_TOKEN environment variable is missing!")
 
-    # Attach post_init hook to set commands on boot
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
 
     # Handlers

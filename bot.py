@@ -22,8 +22,8 @@ TOKEN = os.environ.get("BOT_TOKEN")
 
 # Custom Welcome Message
 WELCOME_TEXT = (
-    "សូមស្វាគមន៍មកកាន់ SB24 MP4 Converter Bot! 🎥🌟\n\n"
-    "ផ្ញើវីដេអូ ឬឯកសារវីដេអូមកទីនេះ ដើម្បីបំប្លែងទៅជា MP4 ដោយឥតគិតថ្លៃ និងលឿនរហ័ស!"
+    "សូមស្វាគមន៍មកកាន់ MP4 Video Converter Bot! 🎥🌟\n\n"
+    "សូមផ្ញើវីដេអូ ឬឯកសារវីដេអូមកទីនេះ ដើម្បីបំប្លែងទៅជា MP4 ដោយឥតគិតថ្លៃ និងលឿនរហ័ស!"
 )
 
 async def post_init(application):

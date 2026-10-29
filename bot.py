@@ -1,136 +1,157 @@
 import os
+import random
 import logging
-import subprocess
-from telegram import Update, BotCommand
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
-    filters,
 )
 
-# Enable logging
+# Logging configuration
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-# Fetch bot token from environment variable
-TOKEN = os.environ.get("BOT_TOKEN")
-
-# Custom Welcome Message
-WELCOME_TEXT = (
-    "សូមស្វាគមន៍មកកាន់ MP4 Video Converter Bot! 🎥🌟\n\n"
-    "សូមផ្ញើវីដេអូ ឬឯកសារវីដេអូមកទីនេះ ដើម្បីបំប្លែងទៅជា MP4 ដោយឥតគិតថ្លៃ និងលឿនរហ័ស!"
+    level=logging.INFO,
 )
 
-async def post_init(application):
-    """Set bot commands menu on startup."""
-    commands = [
-        BotCommand("start", "ចាប់ផ្តើមប្រើប្រាស់ និងបង្ហាញព័ត៌មាន (Start Bot)"),
-        BotCommand("help", "របៀបប្រើប្រាស់ប៊ុត (How to use)"),
-        BotCommand("about", "អំពី SB24 (About SB24)")
+# In-memory database (User ID -> {"balance": int, "claimed": bool})
+# Replace with PostgreSQL/Redis for persistent storage in production
+USER_DATA = {}
+
+START_BALANCE = 1000
+DAILY_BONUS = 500
+
+def get_user_data(user_id: int) -> dict:
+    if user_id not in USER_DATA:
+        USER_DATA[user_id] = {"balance": START_BALANCE, "claimed": False}
+    return USER_DATA[user_id]
+
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    data = get_user_data(user.id)
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("🎰 Slots (Bet 100)", callback_data="play_slots"),
+            InlineKeyboardButton("🎲 Dice (Bet 100)", callback_data="play_dice"),
+        ],
+        [
+            InlineKeyboardButton("🪙 Coin Flip (Bet 100)", callback_data="play_coin"),
+            InlineKeyboardButton("🎁 Daily Bonus", callback_data="daily_bonus"),
+        ],
+        [
+            InlineKeyboardButton("💰 Check Balance", callback_data="get_balance"),
+            InlineKeyboardButton("⚡ Boost Telegram Channel", url="https://t.me/telegram"),
+        ],
     ]
-    await application.bot.set_my_commands(commands)
-    logger.info("Bot commands updated successfully in Telegram menu.")
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send welcome message on /start command."""
-    await update.message.reply_text(WELCOME_TEXT)
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send help instructions."""
-    help_text = (
-        "ℹ️ **របៀបប្រើប្រាស់:**\n"
-        "1. ផ្ញើវីដេអូ ឬឯកសារវីដេអូ (MP4, MKV, AVI, MOV, ផ្សេងៗ) មកកាន់ Bot នេះ\n"
-        "2. រង់ចាំ Bot ទាញយក និងបំប្លែងទៅជា MP4\n"
-        "3. Bot នឹងផ្ញើវីដេអូ MP4 ត្រឡប់មកវិញដោយស្វ័យប្រវត្តិ!"
+    welcome_text = (
+        f"👋 Welcome to Casino Boost, **{user.first_name}**!\n\n"
+        f"💵 **Starting Balance:** `{data['balance']}` coins\n\n"
+        "Choose a game below to play and boost your score!"
     )
-    await update.message.reply_markdown(help_text)
+    
+    if update.message:
+        await update.message.reply_text(welcome_text, parse_mode="Markdown", reply_markup=reply_markup)
+    elif update.callback_query:
+        await update.callback_query.message.edit_text(welcome_text, parse_mode="Markdown", reply_markup=reply_markup)
 
-async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send about info."""
-    await update.message.reply_text(WELCOME_TEXT)
 
-async def convert_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming video/document files and convert them to MP4."""
-    message = update.message
-    video_file = message.video or message.document or message.animation
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    data = get_user_data(user_id)
+    bet = 100
 
-    if not video_file:
-        await message.reply_text("សូមផ្ញើឯកសារវីដេអូដែលត្រឹមត្រូវ! (Please send a valid video file)")
-        return
-
-    status_msg = await message.reply_text("⏳ កំពុងទាញយក និងបំប្លែងវីដេអូ សូមរង់ចាំ... (Downloading & converting video...)")
-
-    # Local file path definitions
-    input_path = f"input_{video_file.file_id}"
-    output_path = f"output_{video_file.file_id}.mp4"
-
-    try:
-        # Download file from Telegram
-        tg_file = await context.bot.get_file(video_file.file_id)
-        await tg_file.download_to_drive(input_path)
-
-        # Convert video to MP4 using FFmpeg
-        command = [
-            "ffmpeg",
-            "-y",                   # Overwrite output file if exists
-            "-i", input_path,       # Input file
-            "-c:v", "libx264",      # Video codec
-            "-preset", "fast",      # Speed/quality balance
-            "-crf", "23",           # Quality standard
-            "-c:a", "aac",          # Audio codec
-            "-b:a", "128k",         # Audio bitrate
-            output_path
-        ]
-
-        # Execute FFmpeg process
-        process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if query.data == "get_balance":
+        text = f"💳 Your current balance is: **{data['balance']}** coins."
         
-        if process.returncode != 0:
-            logger.error(f"FFmpeg error: {process.stderr.decode('utf-8')}")
-            await status_msg.edit_text("❌ មានបញ្ហាក្នុងការបំប្លែងវីដេអូ! (Failed to convert video)")
-            return
+    elif query.data == "daily_bonus":
+        if not data["claimed"]:
+            data["balance"] += DAILY_BONUS
+            data["claimed"] = True
+            text = f"🎁 You claimed your daily bonus of **{DAILY_BONUS}** coins! New balance: **{data['balance']}**."
+        else:
+            text = "❌ You have already claimed your bonus today!"
 
-        # Upload converted video back to user
-        await status_msg.edit_text("📤 កំពុងផ្ញើវីដេអូដែលបំប្លែងរួច... (Sending converted MP4...)")
-        
-        with open(output_path, "rb") as video:
-            await message.reply_video(
-                video=video,
-                caption="✅ វីដេអូរបស់អ្នកត្រូវបានបំប្លែងទៅជា MP4 រួចរាល់! 🎉\n\n" + WELCOME_TEXT
-            )
-            
-        await status_msg.delete()
+    elif query.data in ["play_slots", "play_dice", "play_coin"]:
+        if data["balance"] < bet:
+            text = f"❌ Insufficient funds! You need at least `{bet}` coins to play. Claim your daily bonus!"
+        else:
+            if query.data == "play_slots":
+                symbols = ["🎰", "🍋", "🔔", "💎", "7️⃣"]
+                res = [random.choice(symbols) for _ in range(3)]
+                display = " | ".join(res)
+                
+                if res[0] == res[1] == res[2]:
+                    win = bet * 5
+                    data["balance"] += win
+                    text = f"🎰 **{display}**\n\n🎉 **JACKPOT!** You won `{win}` coins! Balance: `{data['balance']}`"
+                elif res[0] == res[1] or res[1] == res[2] or res[0] == res[2]:
+                    win = bet * 2
+                    data["balance"] += win
+                    text = f"🎰 **{display}**\n\n✨ **MATCH 2!** You won `{win}` coins! Balance: `{data['balance']}`"
+                else:
+                    data["balance"] -= bet
+                    text = f"🎰 **{display}**\n\n💔 No match. Lost `{bet}` coins. Balance: `{data['balance']}`"
 
-    except Exception as e:
-        logger.error(f"Error processing video: {e}")
-        await status_msg.edit_text("❌ មានបញ្ហាបានកើតឡើង! (An error occurred while processing.)")
+            elif query.data == "play_dice":
+                player_roll = random.randint(1, 6)
+                bot_roll = random.randint(1, 6)
+                
+                if player_roll > bot_roll:
+                    win = bet * 2
+                    data["balance"] += win
+                    text = f"🎲 You rolled **{player_roll}**, Bot rolled **{bot_roll}**.\n\n🎉 You WON `{win}` coins! Balance: `{data['balance']}`"
+                elif player_roll < bot_roll:
+                    data["balance"] -= bet
+                    text = f"🎲 You rolled **{player_roll}**, Bot rolled **{bot_roll}**.\n\n💔 You LOST `{bet}` coins. Balance: `{data['balance']}`"
+                else:
+                    text = f"🎲 Both rolled **{player_roll}**.\n\n🤝 It's a DRAW! Balance returned: `{data['balance']}`"
 
-    finally:
-        # Clean up local temporary files
-        if os.path.exists(input_path):
-            os.remove(input_path)
-        if os.path.exists(output_path):
-            os.remove(output_path)
+            elif query.data == "play_coin":
+                outcome = random.choice(["Heads", "Tails"])
+                user_choice = random.choice(["Heads", "Tails"])
+                
+                if user_choice == outcome:
+                    win = int(bet * 1.5)
+                    data["balance"] += win
+                    text = f"🪙 Coin landed on **{outcome}**!\n\n🎉 You won `{win}` coins! Balance: `{data['balance']}`"
+                else:
+                    data["balance"] -= bet
+                    text = f"🪙 Coin landed on **{outcome}**!\n\n💔 You lost `{bet}` coins. Balance: `{data['balance']}`"
+
+    keyboard = [
+        [InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")],
+    ]
+    await query.message.edit_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await start_command(update, context)
+
 
 def main():
-    if not TOKEN:
-        raise ValueError("BOT_TOKEN environment variable is missing!")
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        raise ValueError("BOT_TOKEN environment variable not set!")
 
-    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    app = ApplicationBuilder().token(token).build()
 
-    # Handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("about", about_command))
-    app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO | filters.ANIMATION, convert_video))
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CallbackQueryHandler(main_menu_handler, pattern="^main_menu$"))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("Bot is starting...")
+    logging.info("Bot starting...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()

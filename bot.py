@@ -9,19 +9,14 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# Logging configuration
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Fetch bot token from environment variables
 TOKEN = os.getenv("BOT_TOKEN")
 
-# In-memory database storing balances and user stats
 user_balances = {}
-user_spins = {}
-
 START_BALANCE = 1000
 
 def get_balance(user_id: int) -> int:
@@ -30,7 +25,6 @@ def get_balance(user_id: int) -> int:
 def set_balance(user_id: int, amount: int):
     user_balances[user_id] = amount
 
-# Main menu keyboard generator
 def main_menu_keyboard():
     keyboard = [
         [
@@ -48,7 +42,7 @@ def main_menu_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# /start command handler
+# /start command
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id not in user_balances:
@@ -65,7 +59,44 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif update.callback_query:
         await update.callback_query.edit_message_text(welcome_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
 
-# Callback query router
+# /balance command
+async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    balance = get_balance(user_id)
+    keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main")]]
+    await update.message.reply_text(
+        f"💳 **Your Account Balance:**\n\n💰 `{balance}` coins",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+# /bonus command
+async def bonus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    balance = get_balance(user_id)
+    reward = 250
+    set_balance(user_id, balance + reward)
+    keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main")]]
+    await update.message.reply_text(
+        f"🎁 **Daily Reward Claimed!**\n\nYou received **+{reward} coins**!\nNew Balance: `{get_balance(user_id)}` coins.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+# /boost command
+async def boost_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🚀 Boost Our Channel", url="https://t.me/boost")],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main")]
+    ]
+    boost_text = (
+        "🚀 **Boost Our Channel to Win Big!**\n\n"
+        "Boost our Telegram channel to unlock VIP perks, higher rewards, and free daily spins!\n\n"
+        "Click the button below to give us a boost."
+    )
+    await update.message.reply_text(boost_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+# Callback router for inline buttons
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -92,13 +123,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         boost_text = (
             "🚀 **Boost Our Channel to Win Big!**\n\n"
-            "Boost our Telegram channel to unlock VIP perks, higher rewards, and free daily spins!\n\n"
-            "Click the button below to give us a boost."
+            "Boost our channel to unlock VIP perks and rewards!"
         )
         await query.edit_message_text(boost_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     elif data == "menu_bonus":
-        # Simple daily reward claiming logic
         balance = get_balance(user_id)
         reward = 250
         set_balance(user_id, balance + reward)
@@ -113,7 +142,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         balance = get_balance(user_id)
         bet = 50
         if balance < bet:
-            await query.edit_message_text("❌ You don't have enough balance! (Requires 50 coins)", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu_main")]]))
+            await query.edit_message_text("❌ Insufficient balance!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu_main")]]))
             return
 
         symbols = ["🍋", "🍒", "7️⃣", "🔔", "💎"]
@@ -203,10 +232,15 @@ def main():
     if not TOKEN:
         raise ValueError("BOT_TOKEN environment variable not set.")
     
-    # Disable job_queue to avoid the weakref crash on Python 3.13
+    # Built without job_queue to prevent Python 3.13 weakref crashes
     app = Application.builder().token(TOKEN).job_queue(None).build()
     
+    # Register text command handlers explicitly so Telegram moderation checks pass
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("balance", balance_command))
+    app.add_handler(CommandHandler("bonus", bonus_command))
+    app.add_handler(CommandHandler("boost", boost_command))
+    
     app.add_handler(CallbackQueryHandler(handle_callback))
     
     logger.info("Starting Telegram Casino Bot...")

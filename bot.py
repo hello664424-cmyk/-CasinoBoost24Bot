@@ -203,7 +203,8 @@ def main():
     if not TOKEN:
         raise ValueError("BOT_TOKEN environment variable not set.")
     
-    app = Application.builder().token(TOKEN).build()
+    # Disable job_queue to avoid the weakref crash on Python 3.13
+    app = Application.builder().token(TOKEN).job_queue(None).build()
     
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
